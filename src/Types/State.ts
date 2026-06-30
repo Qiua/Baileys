@@ -29,7 +29,15 @@ export type ConnectionState = {
 	isNewLogin?: boolean
 	/** the current QR code */
 	qr?: string
-	/** passkey challenge received from server */
+	/**
+	 * Set to `true` when the server asks for a passkey (WebAuthn) to finish linking
+	 * this device (WhatsApp's "Shortcake" flow, issue #2672). Baileys cannot complete
+	 * this headlessly: the connection will be ended right after with
+	 * `DisconnectReason.passkeyRequired`. Surface this to your user so they know the
+	 * account currently can't be linked via Baileys.
+	 */
+	passkeyRequired?: boolean
+	/** the raw WebAuthn assertion options the server sent with the passkey request */
 	passkeyChallenge?: PasskeyRequestOptions
 	/** has the device received all pending notifications while it was offline */
 	receivedPendingNotifications?: boolean

@@ -1,7 +1,7 @@
 import { Boom } from '@hapi/boom'
 import NodeCache from '@cacheable/node-cache'
 import readline from 'readline'
-import makeWASocket, { CacheStore, DEFAULT_CONNECTION_CONFIG, DisconnectReason, fetchLatestBaileysVersion, generateMessageIDV2, getAggregateVotesInPollMessage, isJidNewsletter, makeCacheableSignalKeyStore, proto, useMultiFileAuthState, WAMessageContent, WAMessageKey } from '../src'
+import makeWASocket, { CacheStore, DEFAULT_CONNECTION_CONFIG, DisconnectReason, fetchLatestBaileysVersion, fetchLatestWaWebVersion, generateMessageIDV2, getAggregateVotesInPollMessage, isJidNewsletter, makeCacheableSignalKeyStore, proto, useMultiFileAuthState, WAMessageContent, WAMessageKey } from '../src'
 import P from 'pino'
 
 const logger = P({
@@ -43,8 +43,15 @@ const startSock = async() => {
 	if (process.env.ADV_SECRET_KEY) {
 		state.creds.advSecretKey = process.env.ADV_SECRET_KEY
 	}
-	// fetch latest version of WA Web
-	const { version, isLatest } = await fetchLatestBaileysVersion()
+	// Fetch the genuinely-current WhatsApp Web build straight from web.whatsapp.com.
+	// Prefer this over fetchLatestBaileysVersion(), which only returns the version
+	// hardcoded in Baileys' own Defaults and tends to lag behind. Reporting a current
+	// version reduces the chance of WhatsApp forcing the passkey linking flow (#2672).
+	// Falls back to the bundled Baileys version if the fetch fails.
+	let { version, isLatest } = await fetchLatestWaWebVersion()
+	if (!isLatest) {
+		({ version } = await fetchLatestBaileysVersion())
+	}
 	logger.debug({version: version.join('.'), isLatest}, `using latest WA version`)
 
 	const sock = makeWASocket({
@@ -74,11 +81,21 @@ const startSock = async() => {
 			// maybe it closed, or we received all offline message or connection opened
 			if(events['connection.update']) {
 				const update = events['connection.update']
-				const { connection, lastDisconnect, qr } = update
+				const { connection, lastDisconnect, qr, passkeyRequired } = update
+				if (passkeyRequired) {
+					// This account needs a passkey (WebAuthn) to link a new device.
+					// Baileys can't complete that headlessly, so the connection will
+					// be closed right after with DisconnectReason.passkeyRequired.
+					logger.error('This account requires a passkey to link a device — Baileys cannot complete this.')
+				}
 				if(connection === 'close') {
-					// reconnect if not logged out
-					if((lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut) {
+					const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode
+					// don't reconnect if logged out or if the account requires a passkey
+					// (reconnecting would just hit the same wall)
+					if(statusCode !== DisconnectReason.loggedOut && statusCode !== DisconnectReason.passkeyRequired) {
 						startSock()
+					} else if(statusCode === DisconnectReason.passkeyRequired) {
+						logger.fatal('Connection closed. This account requires passkey linking, which is not supported.')
 					} else {
 						logger.fatal('Connection closed. You are logged out.')
 					}

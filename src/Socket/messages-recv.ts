@@ -16,13 +16,14 @@ import type {
 	MessageRelayOptions,
 	MessageUserReceipt,
 	NewChatMessageCapInfo,
+	PasskeyRequestOptions,
 	SocketConfig,
 	WACallEvent,
 	WAMessage,
 	WAMessageKey,
 	WAPatchName
 } from '../Types'
-import { ReachoutTimelockEnforcementType, WAMessageStatus, WAMessageStubType } from '../Types'
+import { DisconnectReason, ReachoutTimelockEnforcementType, WAMessageStatus, WAMessageStubType } from '../Types'
 import {
 	ACCOUNT_RESTRICTED_TEXT,
 	aesDecryptCTR,
@@ -127,6 +128,7 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		onUnexpectedError,
 		assertSessions,
 		sendNode,
+		end,
 		relayMessage,
 		sendReceipt,
 		uploadPreKeys,
@@ -1552,43 +1554,48 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 	const handleNotification = async (node: BinaryNode) => {
 		const remoteJid = node.attrs.from
 
+		// WhatsApp's "Shortcake" device-linking step (issue #2672): after companion
+		// registration completes, accounts with a passkey get an inbound
+		// <notification type="passkey_prologue_request"> carrying WebAuthn assertion
+		// options (rpId "whatsapp.com", userVerification "required"). The server then
+		// waits for a signed assertion before it sends <success>. A headless client has
+		// no authenticator and no credential registered under that rpId, so it cannot
+		// produce a valid assertion for a fresh link. Instead of silently acking and
+		// hanging until the pairing times out, we surface it and end deterministically.
 		if (node.attrs.type === 'passkey_prologue_request') {
+			let passkeyChallenge: PasskeyRequestOptions | undefined
 			try {
 				const passkeyOptionsNode = getBinaryNodeChild(node, 'passkey_request_options')
-				if (passkeyOptionsNode && passkeyOptionsNode.content) {
-					const parsedChallenge = JSON.parse(Buffer.from(passkeyOptionsNode.content as Uint8Array).toString('utf-8'))
-					ev.emit('connection.update', { passkeyChallenge: parsedChallenge })
-
-					if (config.passkeyResolver) {
-						try {
-							const assertionJson = await config.passkeyResolver(parsedChallenge)
-							if (assertionJson) {
-								if ((sock as any).sendPasskeyPrologue) {
-									await (sock as any).sendPasskeyPrologue(assertionJson)
-								} else {
-									logger.error('sendPasskeyPrologue not found in socket')
-								}
-								await sendMessageAck(node)
-								return
-							}
-						} catch (error) {
-							logger.error({ error }, 'passkeyResolver failed')
-						}
-					}
+				if (passkeyOptionsNode?.content) {
+					passkeyChallenge = JSON.parse(Buffer.from(passkeyOptionsNode.content as Uint8Array).toString('utf-8'))
 				}
 			} catch (error) {
-				logger.error({ error }, 'Failed to parse passkey challenge')
+				logger.error({ error }, 'failed to parse passkey challenge')
 			}
 
-			// Fallback: send error to ignore Shortcake flow and fallback to ADV
-			await sendNode({
-				tag: 'error',
-				attrs: {
-					code: '501',
-					text: 'not-acceptable'
+			ev.emit('connection.update', { passkeyRequired: true, passkeyChallenge })
+
+			// Experimental/unsupported escape hatch (see SocketConfig.passkeyResolver):
+			// only works if the integrator can satisfy the WebAuthn ceremony out of band.
+			if (config.passkeyResolver && passkeyChallenge) {
+				try {
+					const assertionJson = await config.passkeyResolver(passkeyChallenge)
+					if (assertionJson) {
+						await sock.sendPasskeyPrologue(assertionJson)
+						await sendMessageAck(node)
+						return
+					}
+				} catch (error) {
+					logger.error({ error }, 'passkeyResolver failed; ending connection')
 				}
-			})
-			await sendMessageAck(node)
+			}
+
+			// Ack the notification properly, then end with a clear, non-retryable reason.
+			await sendMessageAck(node).catch(ackErr => logger.error({ ackErr }, 'failed to ack passkey notification'))
+			logger.warn(
+				'account requires passkey (WebAuthn) linking, which Baileys cannot complete headlessly; ending connection'
+			)
+			end(new Boom('Account requires passkey linking', { statusCode: DisconnectReason.passkeyRequired }))
 			return
 		}
 

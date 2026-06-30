@@ -35,7 +35,14 @@ export enum DisconnectReason {
 	restartRequired = 515,
 	multideviceMismatch = 411,
 	forbidden = 403,
-	unavailableService = 503
+	unavailableService = 503,
+	/**
+	 * The account requires a passkey (WebAuthn) to finish linking a new device
+	 * (WhatsApp's "Shortcake" flow). Baileys cannot complete this headlessly, so
+	 * the connection is ended with this reason instead of hanging until timeout.
+	 * This is non-retryable: reconnecting will hit the same wall. See issue #2672.
+	 */
+	passkeyRequired = 405
 }
 
 export type WAInitResponse = {

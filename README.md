@@ -229,6 +229,46 @@ if (!sock.authState.creds.registered) {
 }
 ```
 
+### Use the current WhatsApp Web version (recommended)
+
+WhatsApp gates some behavior on the client version you report during the handshake. Reporting a stale version makes you more likely to be pushed into newer/locked-down flows (such as the passkey linking flow described below). Fetch the **genuinely current** WhatsApp Web build and pass it as `version`:
+
+```ts
+import makeWASocket, { fetchLatestWaWebVersion, fetchLatestBaileysVersion } from '@whiskeysockets/baileys'
+
+// fetchLatestWaWebVersion() reads the live build from web.whatsapp.com.
+// Prefer it over fetchLatestBaileysVersion(), which only returns the version
+// hardcoded in Baileys' Defaults and tends to lag behind.
+let { version, isLatest } = await fetchLatestWaWebVersion()
+if (!isLatest) {
+    ;({ version } = await fetchLatestBaileysVersion()) // fallback to the bundled version
+}
+
+const sock = makeWASocket({ version })
+```
+
+### Passkey-protected accounts (`DisconnectReason.passkeyRequired`)
+
+WhatsApp is rolling out a passkey (WebAuthn) step for device linking — internally codenamed *"Shortcake"* (see issue [#2672](https://github.com/WhiskeySockets/Baileys/issues/2672)). For affected accounts, after you scan the QR / enter the pairing code, the phone shows *"Keep the app open on both devices… you may need to scan another QR code to use your passkey"* and the link never completes.
+
+This requires a real WebAuthn assertion against `rpId: "whatsapp.com"`, which a headless client **cannot produce** for a fresh link. Baileys therefore does not silently hang: when the server asks for a passkey it emits `connection.update` with `passkeyRequired: true` and then closes the connection with `DisconnectReason.passkeyRequired`. Handle it so you don't reconnect into the same wall:
+
+```ts
+sock.ev.on('connection.update', (update) => {
+    if (update.passkeyRequired) {
+        // tell the user this account currently can't be linked via Baileys
+    }
+
+    const statusCode = (update.lastDisconnect?.error as Boom)?.output?.statusCode
+    if (update.connection === 'close' && statusCode === DisconnectReason.passkeyRequired) {
+        // do NOT auto-reconnect — it will fail the same way
+    }
+})
+```
+
+> [!NOTE]
+> Reporting the current WhatsApp Web version (see above) reduces how often accounts are pushed into this flow, but it cannot bypass a passkey that the server mandates. There is an experimental `passkeyResolver` config hook for advanced integrators who can satisfy the WebAuthn ceremony out of band; it is unsupported and not usable for normal headless linking.
+
 ### Receive Full History
 
 1. Set `syncFullHistory` as `true`

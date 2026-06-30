@@ -553,6 +553,13 @@ export const makeSocket = (config: SocketConfig) => {
 		return { exists, currentPreKeyId }
 	}
 
+	/**
+	 * EXPERIMENTAL / UNSUPPORTED. Submits a WebAuthn assertion for WhatsApp's passkey
+	 * ("Shortcake") device-linking step (issue #2672). Only reached when a
+	 * `passkeyResolver` is configured and returns an assertion. The `shortcake` IQ wire
+	 * format below is reverse-engineered and unverified — it is not known to be accepted
+	 * by the server and may change. Normal headless links cannot get here.
+	 */
 	const sendPasskeyPrologue = async (assertionJson: any) => {
 		const getRefResult = await query({
 			tag: 'iq',

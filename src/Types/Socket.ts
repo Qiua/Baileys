@@ -43,7 +43,19 @@ export type SocketConfig = {
 	 * @deprecated This feature has been removed
 	 */
 	mobile?: boolean
-	/** passkey resolver */
+	/**
+	 * EXPERIMENTAL / UNSUPPORTED escape hatch for WhatsApp's passkey ("Shortcake")
+	 * device-linking step (issue #2672). When the server requests a passkey, Baileys
+	 * calls this with the raw WebAuthn assertion options; you must return a valid
+	 * WebAuthn assertion (the JSON produced by an authenticator holding a credential
+	 * registered under rpId "whatsapp.com").
+	 *
+	 * This is NOT possible for a normal headless link (no authenticator, no such
+	 * credential), so leaving this undefined is the expected case — Baileys will then
+	 * emit `passkeyRequired` and end the connection. Only set this if you have an
+	 * out-of-band way to satisfy the WebAuthn ceremony. The wire format used to submit
+	 * the assertion is not officially documented and may change.
+	 */
 	passkeyResolver?: (options: PasskeyRequestOptions) => Promise<any>
 	/** proxy agent */
 	agent?: Agent
