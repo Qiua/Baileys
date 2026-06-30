@@ -553,6 +553,44 @@ export const makeSocket = (config: SocketConfig) => {
 		return { exists, currentPreKeyId }
 	}
 
+	const sendPasskeyPrologue = async (assertionJson: any) => {
+		const getRefResult = await query({
+			tag: 'iq',
+			attrs: {
+				to: S_WHATSAPP_NET,
+				type: 'get',
+				xmlns: 'shortcake'
+			},
+			content: [
+				{
+					tag: 'ref',
+					attrs: {}
+				}
+			]
+		})
+
+		const ref = getBinaryNodeChild(getRefResult, 'ref')
+		if (!ref || !ref.content) {
+			throw new Error('Failed to get shortcake ref')
+		}
+
+		await query({
+			tag: 'iq',
+			attrs: {
+				to: S_WHATSAPP_NET,
+				type: 'set',
+				xmlns: 'shortcake'
+			},
+			content: [
+				{
+					tag: 'passkey_prologue',
+					attrs: {},
+					content: Buffer.from(JSON.stringify(assertionJson))
+				}
+			]
+		})
+	}
+
 	const uploadPreKeysToServerIfRequired = async () => {
 		try {
 			let count = 0
@@ -1185,7 +1223,8 @@ export const makeSocket = (config: SocketConfig) => {
 		executeUSyncQuery,
 		onWhatsApp,
 		fetchAccountReachoutTimelock,
-		fetchNewChatMessageCap
+		fetchNewChatMessageCap,
+		sendPasskeyPrologue
 	}
 }
 

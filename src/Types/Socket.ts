@@ -43,6 +43,8 @@ export type SocketConfig = {
 	 * @deprecated This feature has been removed
 	 */
 	mobile?: boolean
+	/** passkey resolver */
+	passkeyResolver?: (options: PasskeyRequestOptions) => Promise<any>
 	/** proxy agent */
 	agent?: Agent
 	/** logger */
@@ -150,4 +152,15 @@ export type SocketConfig = {
 		logger: ILogger,
 		pnToLIDFunc?: (jids: string[]) => Promise<LIDMapping[] | undefined>
 	) => SignalRepositoryWithLIDStore
+}
+
+export interface PasskeyRequestOptions {
+	challenge: string
+	timeout: number
+	rpId: string
+	allowCredentials: any[]
+	userVerification: string
+	extensions: {
+		uvm: boolean
+	}
 }
