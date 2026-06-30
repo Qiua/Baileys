@@ -1,5 +1,6 @@
 import { Boom } from '@hapi/boom'
 import type { Contact } from './Contact'
+import type { PasskeyRequestOptions } from './Socket'
 
 export enum SyncState {
 	/** The socket is connecting, but we haven't received pending notifications yet. */
@@ -28,6 +29,8 @@ export type ConnectionState = {
 	isNewLogin?: boolean
 	/** the current QR code */
 	qr?: string
+	/** passkey challenge received from server */
+	passkeyChallenge?: PasskeyRequestOptions
 	/** has the device received all pending notifications while it was offline */
 	receivedPendingNotifications?: boolean
 	/** legacy connection options */

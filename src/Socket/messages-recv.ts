@@ -1552,6 +1552,46 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 	const handleNotification = async (node: BinaryNode) => {
 		const remoteJid = node.attrs.from
 
+		if (node.attrs.type === 'passkey_prologue_request') {
+			try {
+				const passkeyOptionsNode = getBinaryNodeChild(node, 'passkey_request_options')
+				if (passkeyOptionsNode && passkeyOptionsNode.content) {
+					const parsedChallenge = JSON.parse(Buffer.from(passkeyOptionsNode.content as Uint8Array).toString('utf-8'))
+					ev.emit('connection.update', { passkeyChallenge: parsedChallenge })
+
+					if (config.passkeyResolver) {
+						try {
+							const assertionJson = await config.passkeyResolver(parsedChallenge)
+							if (assertionJson) {
+								if ((sock as any).sendPasskeyPrologue) {
+									await (sock as any).sendPasskeyPrologue(assertionJson)
+								} else {
+									logger.error('sendPasskeyPrologue not found in socket')
+								}
+								await sendMessageAck(node)
+								return
+							}
+						} catch (error) {
+							logger.error({ error }, 'passkeyResolver failed')
+						}
+					}
+				}
+			} catch (error) {
+				logger.error({ error }, 'Failed to parse passkey challenge')
+			}
+
+			// Fallback: send error to ignore Shortcake flow and fallback to ADV
+			await sendNode({
+				tag: 'error',
+				attrs: {
+					code: '501',
+					text: 'not-acceptable'
+				}
+			})
+			await sendMessageAck(node)
+			return
+		}
+
 		try {
 			await Promise.all([
 				notificationMutex.mutex(async () => {
