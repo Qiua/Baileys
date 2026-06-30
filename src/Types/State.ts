@@ -1,3 +1,12 @@
+export type PasskeyRequestOptions = {
+	challenge: string
+	timeout: number
+	rpId: string
+	allowCredentials: any[]
+	userVerification: string
+	extensions?: any
+}
+
 import { Boom } from '@hapi/boom'
 import type { Contact } from './Contact'
 
@@ -15,6 +24,8 @@ export enum SyncState {
 export type WAConnectionState = 'open' | 'connecting' | 'close'
 
 export type ConnectionState = {
+	/** passkey challenge pending */
+	passkeyChallenge?: PasskeyRequestOptions
 	/** connection is now open, connecting or closed */
 	connection: WAConnectionState
 

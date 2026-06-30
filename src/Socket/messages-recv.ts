@@ -17,6 +17,7 @@ import type {
 	MessageUserReceipt,
 	NewChatMessageCapInfo,
 	SocketConfig,
+	PasskeyRequestOptions,
 	WACallEvent,
 	WAMessage,
 	WAMessageKey,
@@ -1549,8 +1550,73 @@ export const makeMessagesRecvSocket = (config: SocketConfig) => {
 		}
 	}
 
+	const sendShortcakePrologue = async (assertionJson: any) => {
+		const refResult = await query({
+			tag: 'iq',
+			attrs: {
+				type: 'get',
+				xmlns: 'shortcake',
+				to: S_WHATSAPP_NET
+			},
+			content: [{ tag: 'ref', attrs: {} }]
+		})
+
+		const refNode = getBinaryNodeChild(refResult, 'ref')
+		const companionRef = refNode?.content
+
+		if (!companionRef) {
+			throw new Boom('GetRef IQ failed')
+		}
+
+		await query({
+			tag: 'iq',
+			attrs: {
+				type: 'set',
+				xmlns: 'shortcake',
+				to: S_WHATSAPP_NET
+			},
+			content: [
+				{
+					tag: 'passkey_prologue',
+					attrs: {},
+					content: Buffer.from(JSON.stringify(assertionJson))
+				}
+			]
+		})
+
+		ev.emit('connection.update', { passkeyChallenge: undefined })
+	}
+
 	const handleNotification = async (node: BinaryNode) => {
 		const remoteJid = node.attrs.from
+
+		if (node.tag === 'notification' && node.attrs.type === 'passkey_prologue_request') {
+			const optionsNode = getBinaryNodeChild(node, 'passkey_request_options')
+			if (optionsNode && optionsNode.content) {
+				const optionsStr = Buffer.isBuffer(optionsNode.content)
+					? optionsNode.content.toString('utf-8')
+					: (optionsNode.content as string)
+
+				const challengeData = JSON.parse(optionsStr) as PasskeyRequestOptions
+
+				if (config.passkeyResolver) {
+					try {
+						const assertion = await config.passkeyResolver(challengeData)
+						await sendShortcakePrologue(assertion)
+					} catch (err) {
+						logger.error({ err }, 'Failed to resolve passkey challenge')
+						await sendMessageAck(node, 406)
+					}
+				} else {
+					ev.emit('connection.update', { passkeyChallenge: challengeData })
+					await sendMessageAck(node, 406)
+				}
+			} else {
+				await sendMessageAck(node, 406)
+			}
+
+			return
+		}
 
 		try {
 			await Promise.all([
