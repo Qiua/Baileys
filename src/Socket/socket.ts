@@ -161,6 +161,10 @@ export const makeSocket = (config: SocketConfig) => {
 			logger.trace({ xml: binaryNodeToString(frame), msg: 'xml send' })
 		}
 
+		// mirror the inbound 'frame' event so consumers can observe outgoing nodes
+		// (e.g. the shortcake/passkey capture helper). Purely a notification.
+		ws.emit('node.send', frame)
+
 		const buff = encodeBinaryNode(frame)
 		return sendRawMessage(buff)
 	}

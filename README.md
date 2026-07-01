@@ -269,6 +269,22 @@ sock.ev.on('connection.update', (update) => {
 > [!NOTE]
 > Reporting the current WhatsApp Web version (see above) reduces how often accounts are pushed into this flow, but it cannot bypass a passkey that the server mandates. There is an experimental `passkeyResolver` config hook for advanced integrators who can satisfy the WebAuthn ceremony out of band; it is unsupported and not usable for normal headless linking.
 
+#### Debugging the ceremony
+
+If you are investigating this flow, `captureShortcakeCeremony` dumps only the passkey/shortcake nodes (inbound **and** outbound) to a file, with the WebAuthn challenge JSON pretty-printed:
+
+```ts
+import makeWASocket, { captureShortcakeCeremony } from '@whiskeysockets/baileys'
+
+const sock = makeWASocket({ /* ... */ })
+const capture = captureShortcakeCeremony(sock, { filePath: './shortcake.log', logger })
+
+// ...attempt to link the passkey-protected account, then inspect ./shortcake.log...
+// capture.stop() when done
+```
+
+The decisive thing to look for in the dump: whether the server only asks for a WebAuthn **assertion** (`get` — a `passkey_request_options` with `challenge`/`allowCredentials`/`userVerification`), or also drives a credential **registration** (`create` — fields like `pubKeyCredParams`/`attestation`) that it accepts from the companion. The former cannot be completed headlessly; only the latter would be implementable.
+
 ### Receive Full History
 
 1. Set `syncFullHistory` as `true`
